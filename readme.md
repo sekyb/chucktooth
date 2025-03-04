@@ -1,6 +1,6 @@
 ![ChuckTooth Logo](chucktooth.webp)
 
-# chucktooth Script
+# ChuckTooth.py
 
 `chucktooth` is a Python script designed to scan a specified directory for files containing potentially sensitive information such as IP addresses, email addresses, passwords, API keys, credit card numbers, and more. The script uses regular expressions to identify sensitive data patterns in various file types and outputs the results in an Excel file.
 
