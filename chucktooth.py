@@ -14,7 +14,6 @@ patterns = {
     # Refined Password Pattern to catch only more specific cases
     "Password": r"(password|secret|pass|passwd|api_key|token|apikey|access_token|client_secret|client_id|password123|key)[\s=:]*['\"]?([A-Za-z0-9!@#$%^&*()_+={}|;:<>,.?/~`-]{8,})['\"]?",
 
-
     # URLs and URLs with potential sensitive information
     "URL": r"https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+|ftp://(?:[-\w.]|(?:%[\da-fA-F]{2}))+|file://(?:[-\w.]|(?:%[\da-fA-F]{2}))+",
 
