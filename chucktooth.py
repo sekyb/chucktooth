@@ -2,6 +2,9 @@ import os
 import re
 import pandas as pd
 from openpyxl.utils import get_column_letter
+from openpyxl.styles import PatternFill, Alignment, Font
+from datetime import datetime
+
 
 # Regular expressions for detecting sensitive information
 patterns = {
@@ -44,24 +47,20 @@ patterns = {
 # Function to scan files in the directory
 def scan_directory(directory):
     results = []
-    
-    # Loop through all files in the directory
-    print(f"Scanning directory: {directory}")  # Debugging line
+    print(f"Scanning directory: {directory}")
     for root, dirs, files in os.walk(directory):
         for file in files:
             file_path = os.path.join(root, file)
-            print(f"Checking file: {file_path}")  # Debugging line
-            if file.endswith(('.txt', '.py', '.js', '.html', '.json', '.*')):  # Add file types as needed
+            print(f"Checking file: {file_path}")
+            if file.endswith(('.txt', '.py', '.js', '.html', '.json', '.*')):
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
-                        
-                        # Scan for patterns and store the results
                         for key, pattern in patterns.items():
-                            print(f"Scanning for {key}...")  # Debugging line
+                            print(f"Scanning for {key}...")
                             matches = re.findall(pattern, content)
                             if matches:
-                                print(f"Found matches for {key}: {matches}")  # Debugging line
+                                print(f"Found matches for {key}: {matches}")
                                 for match in matches:
                                     results.append({
                                         'File': file_path,
@@ -72,31 +71,43 @@ def scan_directory(directory):
                     print(f"Error reading file {file_path}: {e}")
     return results
 
-# Function to compile results into an Excel spreadsheet with auto‐adjusted column widths
 def save_to_excel(results, output_file):
     df = pd.DataFrame(results)
-    
-    # Use openpyxl engine explicitly
+
     with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Results')
+        df.to_excel(writer, index=False, sheet_name='Results', startrow=1)  # leave row 1 for banner
+
+        workbook = writer.book
         worksheet = writer.sheets['Results']
-        
-        # Auto‐adjust column widths
+
+        # Banner row 1
+        banner_text = f"CONFIDENTIAL // Seth K. Bates // {datetime.now().year}"
+        worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df.columns))
+        cell = worksheet.cell(row=1, column=1)
+        cell.value = banner_text
+        cell.fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.font = Font(bold=True, color="FFFFFF")
+
+        # Adjust column widths
         for idx, col in enumerate(df.columns, 1):
-            # Find the maximum length in this column (including header)
-            max_length = max(
-                df[col].astype(str).map(len).max(),
-                len(str(col))
-            ) + 2  # add a little extra padding
-            column_letter = get_column_letter(idx)
-            worksheet.column_dimensions[column_letter].width = max_length
+            max_length = max(df[col].astype(str).map(len).max(), len(str(col))) + 2
+            col_letter = get_column_letter(idx)
+            worksheet.column_dimensions[col_letter].width = max_length
+
+        # Autofilter on row 2 headers only
+        last_col_letter = get_column_letter(len(df.columns))
+        worksheet.auto_filter.ref = f"A2:{last_col_letter}2"
+
+        # Freeze panes so banner row (1) is frozen but row 2 is visible
+        worksheet.freeze_panes = worksheet["A2"]
+
 
 # Main execution
 if __name__ == "__main__":
     directory = input("Enter the directory to scan: ")
     output_file = input("Enter the output Excel file name (e.g., results.xlsx): ")
 
-    # Ensure the file ends with .xlsx
     if not output_file.endswith('.xlsx'):
         output_file += '.xlsx'
 
