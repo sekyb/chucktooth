@@ -1,6 +1,7 @@
 import os
 import re
 import pandas as pd
+from openpyxl.utils import get_column_letter
 
 # Regular expressions for detecting sensitive information
 patterns = {
@@ -50,7 +51,7 @@ def scan_directory(directory):
         for file in files:
             file_path = os.path.join(root, file)
             print(f"Checking file: {file_path}")  # Debugging line
-            if file.endswith(('.txt', '.py', '.js', '.html', '.json')):  # Add file types as needed
+            if file.endswith(('.txt', '.py', '.js', '.html', '.json', '.*')):  # Add file types as needed
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
@@ -71,10 +72,24 @@ def scan_directory(directory):
                     print(f"Error reading file {file_path}: {e}")
     return results
 
-# Function to compile results into an Excel spreadsheet
+# Function to compile results into an Excel spreadsheet with auto‐adjusted column widths
 def save_to_excel(results, output_file):
     df = pd.DataFrame(results)
-    df.to_excel(output_file, index=False)
+    
+    # Use openpyxl engine explicitly
+    with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Results')
+        worksheet = writer.sheets['Results']
+        
+        # Auto‐adjust column widths
+        for idx, col in enumerate(df.columns, 1):
+            # Find the maximum length in this column (including header)
+            max_length = max(
+                df[col].astype(str).map(len).max(),
+                len(str(col))
+            ) + 2  # add a little extra padding
+            column_letter = get_column_letter(idx)
+            worksheet.column_dimensions[column_letter].width = max_length
 
 # Main execution
 if __name__ == "__main__":
