@@ -2,7 +2,7 @@
 
 # ChuckTooth.py
 
-`chucktooth` is a Python script that scans a specified directory for files containing potentially sensitive information. It detects patterns such as IP addresses, emails, passwords, API keys, secrets, credit card numbers, and more. The results are output to a detailed Excel report, including summary charts.
+`chucktooth` is a Python script that scans a specified directory for files containing potentially sensitive information. It detects patterns such as IP addresses, emails, passwords, API keys, secrets, credit card numbers, crypto addresses, and more. The results are output to a detailed Excel report, including summary charts.
 
 ---
 
@@ -15,11 +15,17 @@
   - Passwords, API keys, and generic tokens
   - Credit card numbers
   - AWS keys, MongoDB URIs, Docker credentials, and more
-- **Multi-language Support**: Handles a range of source and config file types (see below).
+  - Cryptocurrency wallet addresses (Ethereum, Bitcoin, etc.)
+  - Private keys and secret values
+  - Base64-encoded blobs (with decoding)
+- **Multi-language Support**: Handles a range of source and config file types including Python, JavaScript, HTML, JSON, YAML, INI, config, and more.
 - **Comprehensive Report**: Outputs results as a multi-tab Excel file with:
-  - An executive summary
-  - A detailed results tab (with file, line number, pattern type, and matched value)
-  - Charts visualizing findings and code statistics
+  - An executive summary (code statistics, summary charts)
+  - A detailed results tab (with file, line number, pattern type, matched value, and decoded value)
+  - **Charts**:
+    - Bar chart of lines of code by language
+    - Pie chart of findings by type, with a legend (key) to avoid label overlap
+- **Wide Columns for Results**: Ensures "Match" and "Decoded" columns are wide enough for long values.
 - **Progress Bar**: Real-time progress bar for scanning.
 - **Verbose Logging**: All scan details and findings are logged to a `Logjam` file for later review.
 
@@ -27,7 +33,7 @@
 
 ## Requirements
 
-- Python 3.x
+- Python 3.7 or higher
 - [pandas](https://pandas.pydata.org/)
 - [openpyxl](https://openpyxl.readthedocs.io/en/stable/)
 - [matplotlib](https://matplotlib.org/)
@@ -84,7 +90,9 @@ You can modify or extend the supported file types in the script by editing the f
 
 ## Output
 
-- **Excel File**: Multi-sheet report with banners, summary charts, and detailed findings (file, line, pattern, match).
+- **Excel File**: Multi-sheet report with banners, summary charts, and detailed findings (file, line, pattern, match, decoded value).
+  - **Exec Summary** tab: code line statistics, language bar chart, and a pie chart of findings by type (with a key/legend for clarity).
+  - **Results** tab: all findings, with wide columns for "Match" and "Decoded" fields.
 - **Logjam File**: All scan details and matches are written to `Logjam` for auditing and troubleshooting.
 
 ---
