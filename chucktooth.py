@@ -5,17 +5,33 @@ from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill, Alignment, Font
 from openpyxl.drawing.image import Image as ExcelImage
 from datetime import datetime
-from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import argparse
 import matplotlib.pyplot as plt
 import tempfile
 from collections import defaultdict
+import logging
+from tqdm import tqdm
 
+# --- Logging Setup: File only, no console output ---
+LOG_FILE = "Logjam"
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+fh = logging.FileHandler(LOG_FILE, mode='w')
+fh.setLevel(logging.DEBUG)
+fh_formatter = logging.Formatter(
+    '%(asctime)s [%(levelname)s] %(module)s::%(funcName)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+fh.setFormatter(fh_formatter)
+logger.handlers = []
+logger.addHandler(fh)
+
+# --- Constants ---
 PLACEHOLDER_VALUES = {
     "password", "token", "secret", "string", "null", "none", "default", "example", "changeme"
 }
-
 EXT_LANG_MAP = {
     '.py': 'Python', '.js': 'JavaScript', '.html': 'HTML', '.css': 'CSS',
     '.json': 'JSON', '.yml': 'YAML', '.yaml': 'YAML', '.ini': 'INI', '.cfg': 'CFG',
@@ -24,21 +40,7 @@ EXT_LANG_MAP = {
     '.bat': 'Batch', '.pl': 'Perl', '.swift': 'Swift', '.kt': 'Kotlin', '.ts': 'TypeScript'
 }
 
-def is_potential_secret(s):
-    if not isinstance(s, str):
-        return False
-    s_lower = s.lower()
-    if s_lower in PLACEHOLDER_VALUES:
-        return False
-    if len(set(s)) <= 3:
-        return False
-    if s.isdigit() or s.islower() or s.isupper():
-        return False
-    if len(s) < 8:
-        return False
-    return True
-
-patterns = {
+PATTERNS = {
     "IP Address (IPv4)": r"\b(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\b",
     "IP Address (IPv6)": r"\b(?:[A-Fa-f0-9]{1,4}:){2,7}[A-Fa-f0-9]{1,4}\b|\b::(?:[A-Fa-f0-9]{1,4}:){0,5}[A-Fa-f0-9]{1,4}\b",
     "Email": r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,7}\b",
@@ -59,11 +61,19 @@ patterns = {
     "Docker Credentials": r"//([A-Za-z0-9._-]+:[A-Za-z0-9!@#$%^&*()_+={}|;:<>,.?/~`-]{8,})@",
     "Generic Token": r"\b(?=[a-zA-Z0-9-_]{32,64}\b)(?=.*[a-zA-Z])(?=.*\d)[a-zA-Z0-9-_]{32,64}\b"
 }
-
-pattern_flags = {
+PATTERN_FLAGS = {
     "Password/Token/Secret": re.IGNORECASE | re.VERBOSE,
     "Private Key": re.DOTALL
 }
+
+def is_potential_secret(s):
+    if not isinstance(s, str): return False
+    s_lower = s.lower()
+    if s_lower in PLACEHOLDER_VALUES: return False
+    if len(set(s)) <= 3: return False
+    if s.isdigit() or s.islower() or s.isupper(): return False
+    if len(s) < 8: return False
+    return True
 
 def remove_illegal_excel_chars(val):
     if isinstance(val, str):
@@ -71,61 +81,68 @@ def remove_illegal_excel_chars(val):
     return val
 
 def scan_file(file_path):
+    logger.debug(f"Scanning file: {file_path}")
     results = []
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             for i, line in enumerate(f, start=1):
-                for key, pattern in patterns.items():
-                    flags = pattern_flags.get(key, 0)
+                for key, pattern in PATTERNS.items():
+                    flags = PATTERN_FLAGS.get(key, 0)
                     for match in re.finditer(pattern, line, flags):
                         if key == "Password/Token/Secret":
                             secret = match.group("secret")
-                            if not is_potential_secret(secret):
-                                continue
+                            if not is_potential_secret(secret): continue
                             match_text = secret
                         elif key == "Docker Credentials":
                             match_text = match.group(1)
-                            if not is_potential_secret(match_text.split(':', 1)[-1]):
-                                continue
+                            if not is_potential_secret(match_text.split(':', 1)[-1]): continue
                         elif key == "Private Key":
                             continue
                         else:
                             match_text = match.group(0)
+                        logger.info(f"Potential {key} found in {file_path} (line {i}): {match_text[:40]}...")
                         results.append({
                             'File': file_path,
                             'Line': i,
                             'Pattern': key,
                             'Match': match_text
                         })
+        # Handle multi-line private keys
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-            priv_key_pattern = patterns["Private Key"]
+            priv_key_pattern = PATTERNS["Private Key"]
             for match in re.finditer(priv_key_pattern, content, re.DOTALL):
                 start_line = content[:match.start()].count('\n') + 1
                 match_text = match.group(0)
+                logger.warning(f"Private Key found in {file_path} (line {start_line})")
                 results.append({
                     'File': file_path,
                     'Line': start_line,
                     'Pattern': "Private Key",
                     'Match': match_text[:60] + ('...' if len(match_text) > 60 else '')
                 })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Error scanning file {file_path}: {e}")
     return results
 
 def scan_directory(directory):
+    logger.info(f"Scanning directory: {directory}")
     all_files = []
     for root, _, files in os.walk(directory):
         for file in files:
             if file.endswith(('.txt', '.py', '.js', '.html', '.json', '.env', '.yml', '.yaml', '.ini', '.cfg')) or '.' in file:
                 all_files.append(os.path.join(root, file))
+    logger.info(f"Total files to scan: {len(all_files)}")
     results = []
     with ThreadPoolExecutor() as executor:
-        for file_results in tqdm(executor.map(scan_file, all_files), total=len(all_files), desc="Scanning files"):
-            results.extend(file_results)
+        futures = [executor.submit(scan_file, file_path) for file_path in all_files]
+        for f in tqdm(as_completed(futures), total=len(futures), desc="Scanning files"):
+            results.extend(f.result())
+    logger.info(f"Total findings: {len(results)}")
     return results
 
 def count_lines_per_language(directory):
+    logger.info(f"Counting lines of code in directory: {directory}")
     stats = defaultdict(int)
     for root, dirs, files in os.walk(directory):
         for file in files:
@@ -134,17 +151,21 @@ def count_lines_per_language(directory):
             if lang:
                 try:
                     with open(os.path.join(root, file), 'r', encoding='utf-8', errors='ignore') as f:
-                        stats[lang] += sum(1 for _ in f)
-                except Exception:
-                    continue
+                        line_count = sum(1 for _ in f)
+                        stats[lang] += line_count
+                except Exception as e:
+                    logger.error(f"Error reading file {file}: {e}")
     if stats:
+        logger.info(f"Language stats: {dict(stats)}")
         df = pd.DataFrame(list(stats.items()), columns=["Language", "Lines of Code"])
         return df
     else:
+        logger.warning("No lines of code counted.")
         return pd.DataFrame(columns=["Language", "Lines of Code"])
 
 def plot_loc_chart(df, img_path):
     if df is not None and not df.empty:
+        logger.info(f"Generating LOC bar chart: {img_path}")
         plt.figure(figsize=(8, 5))
         plt.bar(df['Language'], df['Lines of Code'])
         plt.xticks(rotation=45, ha="right")
@@ -157,6 +178,7 @@ def plot_loc_chart(df, img_path):
 def plot_findings_chart(results, img_path):
     df = pd.DataFrame(results)
     if not df.empty and 'Pattern' in df:
+        logger.info(f"Generating findings bar chart: {img_path}")
         count = df['Pattern'].value_counts()
         plt.figure(figsize=(8, 5))
         count.plot(kind="bar")
@@ -167,68 +189,80 @@ def plot_findings_chart(results, img_path):
         plt.close()
 
 def save_to_excel(results, output_file, loc_df=None, loc_img=None, findings_img=None):
+    logger.info(f"Writing results to Excel file: {output_file}")
     df = pd.DataFrame(results)
     for col in df.columns:
         df[col] = df[col].map(remove_illegal_excel_chars)
     with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
-        # First Tab: Exec Summary with CONFIDENTIAL red banner
+        # Tab 1: Exec Summary
         if loc_df is not None and not loc_df.empty:
             loc_df.to_excel(writer, index=False, sheet_name='Exec Summary', startrow=1)
             workbook = writer.book
             worksheet = writer.sheets['Exec Summary']
-            # RED CONFIDENTIAL BANNER (like Results tab)
-            banner_text = f"CONFIDENTIAL // Seth K. Bates // {datetime.now().year}"
+            banner_text = f"CONFIDENTIAL // sekyb // {datetime.now().year}"
             worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(loc_df.columns))
             cell = worksheet.cell(row=1, column=1)
             cell.value = banner_text
             cell.fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.font = Font(bold=True, color="FFFFFF")
-            # Set column widths for A and B
             worksheet.column_dimensions['A'].width = 22
             worksheet.column_dimensions['B'].width = 18
-            # Insert LOC chart image
             if loc_img and os.path.exists(loc_img):
-                img = ExcelImage(loc_img)
-                img.anchor = f"A{len(loc_df)+4}"
-                worksheet.add_image(img)
-        # Tab 2: Sensitive Results
-        df.to_excel(writer, index=False, sheet_name='Results', startrow=1)
+                try:
+                    img = ExcelImage(loc_img)
+                    img.anchor = f"A{len(loc_df)+4}"
+                    worksheet.add_image(img)
+                except Exception as e:
+                    logger.error(f"Error inserting LOC chart in Excel: {e}")
+        # Tab 2: Results (Sensitive Findings)
+        # Write the banner, then the headers, then the data
+        df.to_excel(writer, index=False, sheet_name='Results', startrow=2)
         worksheet2 = writer.sheets['Results']
-        banner_text = f"CONFIDENTIAL // Seth K. Bates // {datetime.now().year}"
+        banner_text = f"CONFIDENTIAL // sekyb // {datetime.now().year}"
+        # Merge only the first row
         worksheet2.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df.columns))
         cell = worksheet2.cell(row=1, column=1)
         cell.value = banner_text
         cell.fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.font = Font(bold=True, color="FFFFFF")
+        # Style the header row (row 3, since 1 is banner and 2 is header)
+        header_row = 3
         for idx, col in enumerate(df.columns, 1):
+            cell = worksheet2.cell(row=header_row, column=idx)
+            cell.font = Font(bold=True)
             max_length = max(df[col].astype(str).map(len).max(), len(str(col))) + 2
             if col == "File":
                 max_length = min(max_length, 50)
             elif col == "Match":
                 max_length = max(max_length, 30)
             worksheet2.column_dimensions[get_column_letter(idx)].width = max_length
-            for row in range(3, 3 + len(df)):
+            for row in range(header_row + 1, header_row + 1 + len(df)):
                 alignment = Alignment(horizontal="left") if col == "Line" else Alignment(horizontal="general")
                 worksheet2.cell(row=row, column=idx).alignment = alignment
         last_col_letter = get_column_letter(len(df.columns))
-        worksheet2.auto_filter.ref = f"A2:{last_col_letter}2"
-        worksheet2.freeze_panes = worksheet2["A2"]
-        # Insert Findings chart image
+        worksheet2.auto_filter.ref = f"A{header_row}:{last_col_letter}{header_row}"
+        worksheet2.freeze_panes = worksheet2[f"A{header_row + 1}"]
         if findings_img and os.path.exists(findings_img):
-            img2 = ExcelImage(findings_img)
-            img2.anchor = f"A{len(df)+4}"
-            worksheet2.add_image(img2)
+            try:
+                img2 = ExcelImage(findings_img)
+                img2.anchor = f"A{header_row + len(df) + 3}"
+                worksheet2.add_image(img2)
+            except Exception as e:
+                logger.error(f"Error inserting findings chart in Excel: {e}")
+    logger.info("Excel report generation complete.")
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="Scan a directory for sensitive data and code statistics.")
     parser.add_argument('-d', '--directory', required=True, help='Directory to scan')
-    parser.add_argument('-o', '--output', required=True, help='Output Excel file name (e.g., results.xlsx)')
+    parser.add_argument('-o', '--output', default='results.xlsx', help='Output Excel file name (default: results.xlsx)')
     args = parser.parse_args()
     output_file = args.output
     if not output_file.endswith('.xlsx'):
         output_file += '.xlsx'
+    logger.info("STARTING SCAN")
+    logger.info(f"Parameters: directory={args.directory}, output={output_file}")
     print(f"Scanning directory {args.directory}...")
     results = scan_directory(args.directory)
     print("Counting lines of code by language...")
@@ -247,4 +281,8 @@ if __name__ == "__main__":
         findings_img_path = None
     print(f"Saving results to {output_file}...")
     save_to_excel(results, output_file, loc_df=loc_df, loc_img=loc_img_path, findings_img=findings_img_path)
+    logger.info("PROCESS COMPLETE")
     print("Scan complete and results saved!")
+
+if __name__ == "__main__":
+    main()

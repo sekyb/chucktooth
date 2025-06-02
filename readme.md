@@ -2,68 +2,93 @@
 
 # ChuckTooth.py
 
-`chucktooth` is a Python script designed to scan a specified directory for files containing potentially sensitive information such as IP addresses, email addresses, passwords, API keys, credit card numbers, and more. The script uses regular expressions to identify sensitive data patterns in various file types and outputs the results in an Excel file.
+`chucktooth` is a Python script that scans a specified directory for files containing potentially sensitive information. It detects patterns such as IP addresses, emails, passwords, API keys, secrets, credit card numbers, and more. The results are output to a detailed Excel report, including summary charts.
+
+---
 
 ## Features
 
-- Scans files in a specified directory for sensitive information.
-- Identifies various types of sensitive data, including but not limited to:
-  - IP addresses (IPv4 & IPv6)
+- **Recursive Directory Scan**: Scans all supported files in a directory and its subdirectories.
+- **Sensitive Data Detection**: Identifies a wide variety of sensitive information:
+  - IPv4 and IPv6 addresses
   - Email addresses
-  - Passwords and API tokens
+  - Passwords, API keys, and generic tokens
   - Credit card numbers
   - AWS keys, MongoDB URIs, Docker credentials, and more
-- Outputs the results into an Excel file (`.xlsx` format).
+- **Multi-language Support**: Handles a range of source and config file types (see below).
+- **Comprehensive Report**: Outputs results as a multi-tab Excel file with:
+  - An executive summary
+  - A detailed results tab (with file, line number, pattern type, and matched value)
+  - Charts visualizing findings and code statistics
+- **Progress Bar**: Real-time progress bar for scanning.
+- **Verbose Logging**: All scan details and findings are logged to a `Logjam` file for later review.
+
+---
 
 ## Requirements
 
 - Python 3.x
-- `pandas` library
-- `openpyxl` library (for saving results to Excel)
+- [pandas](https://pandas.pydata.org/)
+- [openpyxl](https://openpyxl.readthedocs.io/en/stable/)
+- [matplotlib](https://matplotlib.org/)
+- [tqdm](https://tqdm.github.io/)
 
-You can install the required libraries using pip:
+Install the required libraries with:
 
 ```bash
-pip install pandas openpyxl
+pip install -r requirements.txt
 ```
+
+---
 
 ## How to Use
 
-1. Clone or download the `chucktooth` script.
-2. Place the script in a directory of your choice.
-3. Run the script using Python:
+1. **Clone or download** the `chucktooth.py` script.
+2. Run the script from the terminal, specifying the directory to scan and (optionally) the output Excel file:
 
     ```bash
-    python chucktooth.py
+    python chucktooth.py -d /path/to/your/project -o results.xlsx
     ```
 
-4. When prompted, enter the directory you want to scan (e.g., `/path/to/your/project`).
-5. Enter the output Excel file name (e.g., `results.xlsx`).
+    - `-d` or `--directory`: Directory to scan (*required*)
+    - `-o` or `--output`: Name of Excel output file (default: `results.xlsx`)
 
-The script will scan files in the specified directory and output the results in an Excel file, where each match is listed with:
-- File name
-- Detected pattern (e.g., IP address, password)
-- The matched value
+3. **Monitor the progress bar** in your terminal as the scan proceeds.
+4. When complete, open the generated Excel report for results and charts.
+5. For full scan details, refer to the `Logjam` file created in the same directory.
 
-### Supported File Types
-- `.txt`
-- `.py`
-- `.js`
-- `.html`
-- `.json`
+---
 
-You can modify the supported file types in the script to add or remove file extensions.
-
-## Example
+### Example Usage
 
 ```bash
-Enter the directory to scan: /home/user/project
-Enter the output Excel file name (e.g., results.xlsx): sensitive_data.xlsx
-Scanning directory /home/user/project...
-Found 10 potential issues. Saving to sensitive_data.xlsx...
+python chucktooth.py -d ~/projects/myrepo -o scan_report.xlsx
+
+Scanning directory ~/projects/myrepo...
+Counting lines of code by language...
+Saving results to scan_report.xlsx...
 Scan complete and results saved!
 ```
 
+---
+
+### Supported File Types
+
+By default, the script scans files with the following extensions:
+
+- `.txt`, `.py`, `.js`, `.html`, `.json`, `.env`, `.yml`, `.yaml`, `.ini`, `.cfg`, and any file containing a dot in its name
+
+You can modify or extend the supported file types in the script by editing the file extension list.
+
+---
+
+## Output
+
+- **Excel File**: Multi-sheet report with banners, summary charts, and detailed findings (file, line, pattern, match).
+- **Logjam File**: All scan details and matches are written to `Logjam` for auditing and troubleshooting.
+
+---
+
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
